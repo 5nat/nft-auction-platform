@@ -1,3 +1,5 @@
+.PHONY: backend-run backend-tidy mysql-up mysql-down mysql-reset mysql-logs mysql-ps health git-status
+
 backend-run:
 	cd backend && go run ./cmd/server
 
