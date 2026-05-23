@@ -54,7 +54,13 @@ func NewMySQL(ctx context.Context, dsn string) (*DB, error) {
 }
 
 func autoMigrate(db *gorm.DB) error {
-	if err := db.AutoMigrate(&model.AppMetadata{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.AppMetadata{},
+		//&model.Auction{},
+		//&model.Bid{},
+		//&model.SyncCursor{},
+		//&model.ProcessedLog{},
+	); err != nil {
 		return err
 	}
 

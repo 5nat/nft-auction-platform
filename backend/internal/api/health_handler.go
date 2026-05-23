@@ -19,6 +19,8 @@ func HealthHandler(deps Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dbStatus := "ok"
 		statusCode := http.StatusOK
+		code := CodeOk
+		message := "ok"
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -26,6 +28,8 @@ func HealthHandler(deps Dependencies) gin.HandlerFunc {
 		if err := deps.DB.SQLDB.PingContext(ctx); err != nil {
 			dbStatus = "down"
 			statusCode = http.StatusServiceUnavailable
+			code = CodeDatabaseDown
+			message = "database down"
 			deps.Logger.Error("database health check failed", "error", err)
 		}
 
@@ -40,6 +44,6 @@ func HealthHandler(deps Dependencies) gin.HandlerFunc {
 			resp.Status = "degraded"
 		}
 
-		c.JSON(statusCode, resp)
+		JSON(c, statusCode, code, message, resp)
 	}
 }

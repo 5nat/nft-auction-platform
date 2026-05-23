@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -11,6 +12,8 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
+	Chain    ChainConfig
+	Indexer  IndexerConfig
 }
 
 type ServerConfig struct {
@@ -24,6 +27,21 @@ type ServerConfig struct {
 
 type DatabaseConfig struct {
 	MySQLDSN string
+}
+
+type ChainConfig struct {
+	PRCURL          string
+	WSURL           string
+	ChainID         int64
+	AuctionContract string
+	StartBlock      uint64
+}
+
+type IndexerConfig struct {
+	Enabled       bool
+	Confirmations uint64
+	BatchSize     uint64
+	PollInterval  time.Duration
 }
 
 func Load() (Config, error) {
@@ -40,6 +58,19 @@ func Load() (Config, error) {
 		},
 		Database: DatabaseConfig{
 			MySQLDSN: getEnv("MYSQL_DSN", ""),
+		},
+		Chain: ChainConfig{
+			PRCURL:          getEnv("CHAIN_PRC_URL", "http://127.0.0.1:8545"),
+			WSURL:           getEnv("CHAIN_WS_URL", "ws://127.0.0.1:8545"),
+			ChainID:         getInt64Env("CHAIN_ID", 31337),
+			AuctionContract: getEnv("AUCTION_CONTRACT", ""),
+			StartBlock:      getUint64Env("START_BLOCK", 0),
+		},
+		Indexer: IndexerConfig{
+			Enabled:       getBoolEnv("INDEXER_ENABLED", false),
+			Confirmations: getUint64Env("INDEXER_CONFIRMATIONS", 1),
+			BatchSize:     getUint64Env("INDEXER_BATCH_SIZE", 500),
+			PollInterval:  getDurationEnv("INDEXER_POLL_INTERVAL", 3*time.Second),
 		},
 	}
 
@@ -70,4 +101,45 @@ func getDurationEnv(key string, fallback time.Duration) time.Duration {
 	}
 
 	return d
+}
+
+func getBoolEnv(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	v, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+func getInt64Env(key string, fallback int64) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	v, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+
+	return v
+}
+
+func getUint64Env(key string, fallback uint64) uint64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	v, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+
+	return v
 }
