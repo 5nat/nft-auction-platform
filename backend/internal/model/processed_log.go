@@ -22,3 +22,34 @@ type ProcessedLog struct {
 func (ProcessedLog) TableName() string {
 	return "processed_logs"
 }
+
+/*
+CREATE TABLE processed_logs (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  chain_id BIGINT NOT NULL,
+  contract_address CHAR(42) NOT NULL,
+
+  tx_hash CHAR(66) NOT NULL,
+  log_index BIGINT UNSIGNED NOT NULL,
+
+  block_number BIGINT UNSIGNED NOT NULL,
+  block_hash CHAR(66),
+
+  event_name VARCHAR(64) NOT NULL,
+
+  created_at DATETIME,
+
+  UNIQUE KEY uk_processed_log (
+    chain_id,
+    contract_address,
+    tx_hash,
+    log_index
+  ),
+
+  INDEX idx_processed_logs_chain_id (chain_id),
+  INDEX idx_processed_logs_contract_address (contract_address),
+  INDEX idx_processed_logs_block_number (block_number),
+  INDEX idx_processed_logs_event_name (event_name)
+);
+*/

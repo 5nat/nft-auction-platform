@@ -18,3 +18,23 @@ type SyncCursor struct {
 func (SyncCursor) TableName() string {
 	return "sync_cursors"
 }
+
+/*
+CREATE TABLE sync_cursors (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  chain_id BIGINT NOT NULL,
+  contract_address CHAR(42) NOT NULL,
+
+  last_processed_block BIGINT UNSIGNED NOT NULL,
+  last_processed_block_hash CHAR(66),
+
+  created_at DATETIME,
+  updated_at DATETIME,
+
+  UNIQUE KEY uk_cursor (
+    chain_id,
+    contract_address
+  )
+);
+*/

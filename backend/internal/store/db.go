@@ -32,7 +32,7 @@ func NewMySQL(ctx context.Context, dsn string) (*DB, error) {
 
 	sqlDB.SetMaxOpenConns(20)
 	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetConnMaxLifetime(30 * time.Second)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
 
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -56,10 +56,10 @@ func NewMySQL(ctx context.Context, dsn string) (*DB, error) {
 func autoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&model.AppMetadata{},
-		//&model.Auction{},
-		//&model.Bid{},
-		//&model.SyncCursor{},
-		//&model.ProcessedLog{},
+		&model.Auction{},
+		&model.Bid{},
+		&model.SyncCursor{},
+		&model.ProcessedLog{},
 	); err != nil {
 		return err
 	}
@@ -75,7 +75,7 @@ func autoMigrate(db *gorm.DB) error {
 }
 
 func (db *DB) Close() error {
-	if db == nil || db.SQLDB != nil {
+	if db == nil || db.SQLDB == nil {
 		return nil
 	}
 	return db.SQLDB.Close()
