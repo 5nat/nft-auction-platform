@@ -2,36 +2,28 @@ package indexer
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/5nat/nft-auction-platform/backend/internal/chain"
 	"github.com/5nat/nft-auction-platform/backend/internal/chain/bindings"
 	"github.com/5nat/nft-auction-platform/backend/internal/config"
-	"github.com/5nat/nft-auction-platform/backend/internal/model"
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
-)
-
-var (
-	auctionCreatedTopic   = crypto.Keccak256Hash([]byte("AuctionCreated(uint256,address,address,uint256,uint256,uint256)"))
-	bidPlacedTopic        = crypto.Keccak256Hash([]byte("BidPlaced(uint256,address,address,uint256,uint256)"))
-	auctionEndedTopic     = crypto.Keccak256Hash([]byte("AuctionEnded(uint256,address,address,uint256,uint256)"))
-	auctionCancelledTopic = crypto.Keccak256Hash([]byte("AuctionCancelled(uint256)"))
 )
 
 type Indexer struct {
-	db    *gorm.DB
-	chain *chain.Client
+	// scanner 是链上读取接口。
+	// Indexer 只依赖 ChainScanner 行为，不依赖具体的 *Scanner 实现。
+	// 这样后续单元测试可以注入 fakeScanner。
+	scanner ChainScanner
+
+	// repo 是数据库读写接口。
+	// Indexer 只依赖 EventRepository 行为，不依赖具体 GORM 实现。
+	repo EventRepository
 
 	marketAddress common.Address
 	market        *bindings.NFTAuctionMarket
@@ -84,9 +76,12 @@ func New(
 		pollInterval = 3 * time.Second
 	}
 
+	repo := NewRepository(db, cfg.Chain.ChainID, marketAddress)
+	scanner := NewScanner(chainClient, marketAddress)
+
 	return &Indexer{
-		db:            db,
-		chain:         chainClient,
+		scanner:       scanner,
+		repo:          repo,
 		marketAddress: marketAddress,
 		market:        market,
 		chainID:       cfg.Chain.ChainID,
@@ -112,7 +107,7 @@ func (idx *Indexer) Start(ctx context.Context) error {
 	)
 
 	for {
-		if err := idx.RunOne(ctx); err != nil {
+		if err := idx.RunOnce(ctx); err != nil {
 			if ctx.Err() != nil {
 				idx.logger.Info("Indexer context cancelled")
 				return nil
@@ -136,8 +131,8 @@ func (idx *Indexer) Start(ctx context.Context) error {
 	}
 }
 
-func (idx *Indexer) RunOne(ctx context.Context) error {
-	latestBlock, err := idx.chain.LatestBlockNumber(ctx)
+func (idx *Indexer) RunOnce(ctx context.Context) error {
+	latestBlock, err := idx.scanner.LatestBlockNumber(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get latest block number: %w", err)
 	}
@@ -198,32 +193,10 @@ func (idx *Indexer) RunOne(ctx context.Context) error {
 	return nil
 }
 
-func (idx *Indexer) nextFromBlock(ctx context.Context) (uint64, error) {
-	var cursor model.SyncCursor
-
-	err := idx.db.WithContext(ctx).
-		Where("chain_id = ? AND contract_address =?", idx.chainID, normalizeAddress(idx.marketAddress)).
-		First(&cursor).Error
-
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return idx.startBlock, nil
-	}
-
-	if err != nil {
-		return 0, err
-	}
-
-	return cursor.LastProcessedBlock + 1, nil
-}
-
 func (idx *Indexer) processRange(ctx context.Context, fromBlock uint64, toBlock uint64) error {
-	logs, err := idx.chain.EthClient().FilterLogs(ctx, ethereum.FilterQuery{
-		FromBlock: new(big.Int).SetUint64(fromBlock),
-		ToBlock:   new(big.Int).SetUint64(toBlock),
-		Addresses: []common.Address{idx.marketAddress},
-	})
+	logs, err := idx.scanner.FilterLogs(ctx, fromBlock, toBlock)
 	if err != nil {
-		return fmt.Errorf("failed to filter logs: %w", err)
+		return err
 	}
 
 	sort.Slice(logs, func(i, j int) bool {
@@ -286,395 +259,4 @@ func (idx *Indexer) processLog(ctx context.Context, lg types.Log) (bool, error) 
 		)
 		return false, nil
 	}
-}
-
-func (idx *Indexer) processAuctionCreated(ctx context.Context, lg types.Log) (bool, error) {
-	event, err := idx.market.ParseAuctionCreated(lg)
-	if err != nil {
-		return false, fmt.Errorf("failed to parse AuctionCreated: %w", err)
-	}
-
-	inserted := false
-
-	err = idx.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var insertProcessedLogErr error
-		inserted, insertProcessedLogErr = idx.insertProcessedLog(tx, lg, "AuctionCreated")
-		if insertProcessedLogErr != nil {
-			return insertProcessedLogErr
-		}
-		if !inserted {
-			return nil
-		}
-		if !event.AuctionId.IsUint64() {
-			return fmt.Errorf("auction id overflow: %s", event.AuctionId.String())
-		}
-		if !event.EndTime.IsUint64() {
-			return fmt.Errorf("end time overflow: %s", event.EndTime.String())
-		}
-
-		auction := model.Auction{
-			ChainID:            idx.chainID,
-			ContractAddress:    normalizeAddress(idx.marketAddress),
-			AuctionID:          event.AuctionId.Uint64(),
-			Seller:             normalizeAddress(event.Seller),
-			NFTContract:        normalizeAddress(event.Nft),
-			TokenID:            event.TokenId.String(),
-			MinBidUSD:          event.MinBidUsd.String(),
-			HighestBidder:      "",
-			HighestBidToken:    "",
-			HighestBidAmount:   "0",
-			HighestBidUSD:      "0",
-			EndTime:            event.EndTime.Uint64(),
-			Status:             model.AuctionStatusActive,
-			CreatedTxHash:      normalizeHash(lg.TxHash),
-			CreatedBlockNumber: lg.BlockNumber,
-		}
-
-		if insertAuctionErr := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "chain_id"},
-				{Name: "contract_address"},
-				{Name: "auction_id"},
-			},
-			DoNothing: true,
-		}).Create(&auction).Error; insertAuctionErr != nil {
-			return fmt.Errorf("failed to insert auction: %w", insertAuctionErr)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return false, err
-	}
-
-	if !inserted {
-		idx.logger.Debug(
-			"AuctionCreated already processed",
-			"auction_id", event.AuctionId.String(),
-			"tx_hash", lg.TxHash.Hex(),
-			"log_index", lg.Index,
-		)
-		return false, nil
-	}
-
-	idx.logger.Info(
-		"AuctionCreated indexed",
-		"auction_id", event.AuctionId.String(),
-		"seller", event.Seller.Hex(),
-		"nft", event.Nft.Hex(),
-		"token_id", event.TokenId.String(),
-		"block_number", lg.BlockNumber,
-		"tx_hash", lg.TxHash.Hex(),
-		"log_index", lg.Index,
-	)
-
-	return true, nil
-}
-
-func (idx *Indexer) processBidPlaced(ctx context.Context, lg types.Log) (bool, error) {
-	event, err := idx.market.ParseBidPlaced(lg)
-	if err != nil {
-		return false, fmt.Errorf("failed to parse BidPlaced: %w", err)
-	}
-
-	inserted := false
-
-	err = idx.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var insertProcessedLogErr error
-		inserted, insertProcessedLogErr = idx.insertProcessedLog(tx, lg, "BidPlaced")
-
-		if insertProcessedLogErr != nil {
-			return insertProcessedLogErr
-		}
-
-		if !inserted {
-			return nil
-		}
-
-		if !event.AuctionId.IsUint64() {
-			return fmt.Errorf("auction id overflow: %s", event.AuctionId.String())
-		}
-
-		auctionID := event.AuctionId.Uint64()
-
-		bid := model.Bid{
-			ChainID:         idx.chainID,
-			ContractAddress: normalizeAddress(idx.marketAddress),
-			AuctionID:       auctionID,
-			Bidder:          normalizeAddress(event.Bidder),
-			BidToken:        normalizeAddress(event.BidToken),
-			Amount:          event.Amount.String(),
-			AmountUSD:       event.AmountUsd.String(),
-			TxHash:          normalizeHash(lg.TxHash),
-			LogIndex:        uint64(lg.Index),
-			BlockNumber:     lg.BlockNumber,
-			BlockHash:       normalizeHash(lg.BlockHash),
-		}
-
-		if createBidLogErr := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "chain_id"},
-				{Name: "contract_address"},
-				{Name: "tx_hash"},
-				{Name: "log_index"},
-			},
-		}).Create(&bid).Error; createBidLogErr != nil {
-			return fmt.Errorf("failed to insert bid: %w", createBidLogErr)
-		}
-
-		res := tx.Model(&model.Auction{}).
-			Where(
-				"chain_id = ? AND contract_address = ? AND auction_id = ?",
-				idx.chainID,
-				normalizeAddress(idx.marketAddress),
-				auctionID,
-			).
-			Updates(map[string]any{
-				"highest_bidder":     normalizeAddress(event.Bidder),
-				"highest_bid_token":  normalizeAddress(event.BidToken),
-				"highest_bid_amount": event.Amount.String(),
-				"highest_bid_usd":    event.AmountUsd.String(),
-			})
-
-		if res.Error != nil {
-			return fmt.Errorf("failed to update auction: %w", res.Error)
-		}
-
-		if res.RowsAffected == 0 {
-			return fmt.Errorf("auction not found when applying BidPlaced: auction_id=%d", auctionID)
-		}
-		return nil
-	})
-
-	if err != nil {
-		return false, err
-	}
-
-	if !inserted {
-		idx.logger.Debug(
-			"BIdPlaced already processed",
-			"auction_id", event.AuctionId.String(),
-			"tx_hash", lg.TxHash.Hex(),
-			"log_index", lg.Index,
-		)
-	}
-
-	idx.logger.Info(
-		"BidPlaced indexed",
-		"auction_id", event.AuctionId.String(),
-		"bidder", event.Bidder.Hex(),
-		"bid_token", event.BidToken.Hex(),
-		"amount", event.Amount.String(),
-		"amount_usd", event.AmountUsd.String(),
-		"block_number", lg.BlockNumber,
-		"tx_hash", lg.TxHash.Hex(),
-		"log_index", lg.Index,
-	)
-
-	return true, nil
-}
-
-func (idx *Indexer) processAuctionEnded(ctx context.Context, lg types.Log) (bool, error) {
-	event, err := idx.market.ParseAuctionEnded(lg)
-	if err != nil {
-		return false, fmt.Errorf("failed to parse AuctionEnded: %w", err)
-	}
-
-	inserted := false
-
-	err = idx.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var insertProcessedLogErr error
-		inserted, insertProcessedLogErr = idx.insertProcessedLog(tx, lg, "AuctionEnded")
-		if insertProcessedLogErr != nil {
-			return insertProcessedLogErr
-		}
-
-		if !inserted {
-			return nil
-		}
-
-		if !event.AuctionId.IsUint64() {
-			return fmt.Errorf("auction id overflow: %s", event.AuctionId.String())
-		}
-
-		auctionID := event.AuctionId.Uint64()
-
-		res := tx.Model(&model.Auction{}).
-			Where(
-				"chain_id = ? AND contract_address = ? AND auction_id = ?",
-				idx.chainID,
-				normalizeAddress(idx.marketAddress),
-				auctionID,
-			).Updates(map[string]any{
-			"status":             model.AuctionStatusEnded,
-			"highest_bidder":     normalizeAddress(event.Winner),
-			"highest_bid_token":  normalizeAddress(event.BidToken),
-			"highest_bid_amount": event.Amount.String(),
-			"highest_bid_usd":    event.AmountUsd.String(),
-		})
-
-		if res.Error != nil {
-			return fmt.Errorf("failed to update auction: %w", res.Error)
-		}
-
-		if res.RowsAffected == 0 {
-			return fmt.Errorf("auction not found when applying AuctionEnded: auction_id=%d", auctionID)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return false, err
-	}
-
-	if !inserted {
-		idx.logger.Debug(
-			"AuctionEnded already processed",
-			"auction_id", event.AuctionId.String(),
-			"tx_hash", lg.TxHash.Hex(),
-			"log_index", lg.Index,
-		)
-		return false, nil
-	}
-
-	idx.logger.Info(
-		"AuctionEnded indexed",
-		"auction_id", event.AuctionId.String(),
-		"winner", event.Winner.Hex(),
-		"bid_token", event.BidToken.Hex(),
-		"amount", event.Amount.String(),
-		"amount_usd", event.AmountUsd.String(),
-		"block_number", lg.BlockNumber,
-		"tx_hash", lg.TxHash.Hex(),
-		"log_index", lg.Index,
-	)
-
-	return true, nil
-}
-
-func (idx *Indexer) processAuctionCancelled(ctx context.Context, lg types.Log) (bool, error) {
-	event, err := idx.market.ParseAuctionCancelled(lg)
-	if err != nil {
-		return false, fmt.Errorf("failed to parse AuctionCancelled: %w", err)
-	}
-	inserted := false
-	err = idx.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var insertProcessedLogErr error
-		inserted, insertProcessedLogErr = idx.insertProcessedLog(tx, lg, "AuctionCancelled")
-		if insertProcessedLogErr != nil {
-			return insertProcessedLogErr
-		}
-		if !inserted {
-			return nil
-		}
-		if !event.AuctionId.IsUint64() {
-			return fmt.Errorf("auction id overflow: %s", event.AuctionId.String())
-		}
-
-		auctionID := event.AuctionId.Uint64()
-
-		res := tx.Model(&model.Auction{}).
-			Where(
-				"chain_id = ? AND contract_address = ? AND auction_id = ?",
-				idx.chainID,
-				normalizeAddress(idx.marketAddress),
-				auctionID,
-			).Updates(map[string]any{
-			"status": model.AuctionStatusCancelled,
-		})
-
-		if res.Error != nil {
-			return fmt.Errorf("failed to update auction: %w", res.Error)
-		}
-		if res.RowsAffected == 0 {
-			return fmt.Errorf("auction not found when processAuctionCancelled: auction_id=%d", auctionID)
-		}
-		return nil
-	})
-
-	if err != nil {
-		return false, err
-	}
-	if !inserted {
-		idx.logger.Debug(
-			"AuctionCancelled already processed",
-			"auction_id", event.AuctionId.String(),
-			"tx_hash", lg.TxHash.Hex(),
-			"log_index", lg.Index,
-		)
-	}
-
-	idx.logger.Info(
-		"AuctionCancelled indexed",
-		"auction_id", event.AuctionId.String(),
-		"block_number", lg.BlockNumber,
-		"tx_hash", lg.TxHash.Hex(),
-		"log_index", lg.Index,
-	)
-
-	return true, nil
-}
-
-func (idx *Indexer) insertProcessedLog(tx *gorm.DB, lg types.Log, eventName string) (bool, error) {
-	processedLog := model.ProcessedLog{
-		ChainID:         idx.chainID,
-		ContractAddress: normalizeAddress(idx.marketAddress),
-		TxHash:          normalizeHash(lg.TxHash),
-		LogIndex:        uint64(lg.Index),
-		BlockNumber:     lg.BlockNumber,
-		BlockHash:       normalizeHash(lg.BlockHash),
-		EventName:       eventName,
-	}
-
-	res := tx.Clauses(clause.OnConflict{
-		Columns: []clause.Column{
-			{Name: "chain_id"},
-			{Name: "contract_address"},
-			{Name: "tx_hash"},
-			{Name: "log_index"},
-		},
-		DoNothing: true,
-	}).Create(&processedLog)
-
-	if res.Error != nil {
-		return false, fmt.Errorf("failed to insert processed log: %w", res.Error)
-	}
-
-	return res.RowsAffected == 1, nil
-}
-
-func (idx *Indexer) updateCursor(ctx context.Context, blockNumber uint64) error {
-	header, err := idx.chain.EthClient().BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
-	if err != nil {
-		return fmt.Errorf("failed to get block header by number: %w", err)
-	}
-
-	cursor := model.SyncCursor{
-		ChainID:                idx.chainID,
-		ContractAddress:        normalizeAddress(idx.marketAddress),
-		LastProcessedBlock:     blockNumber,
-		LastProcessedBlockHash: normalizeHash(header.Hash()),
-	}
-
-	return idx.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{
-			{Name: "chain_id"},
-			{Name: "contract_address"},
-		},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"last_processed_block",
-			"last_processed_block_hash",
-			"updated_at",
-		}),
-	}).Create(&cursor).Error
-}
-
-func normalizeAddress(addr common.Address) string {
-	return strings.ToLower(addr.Hex())
-}
-
-func normalizeHash(hash common.Hash) string {
-	return strings.ToLower(hash.Hex())
 }
