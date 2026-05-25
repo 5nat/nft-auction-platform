@@ -3,68 +3,50 @@ package model
 import "time"
 
 type Bid struct {
-	ID uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
+	ID uint64 `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 
-	ChainID         int64  `gorm:"not null;uniqueIndex:uk_bid_log;index:idx_bids_auction_order" json:"chain_id"`
-	ContractAddress string `gorm:"type:char(42);not null;uniqueIndex:uk_bid_log;index:idx_bids_auction_order" json:"contract_address"`
+	// 数据来源：哪条链、哪个拍卖合约。
+	ChainID int64 `gorm:"column:chain_id;not null;uniqueIndex:uk_bid_log,priority:1;index:idx_bids_auction_order,priority:1" json:"chain_id"`
 
-	AuctionID uint64 `gorm:"not null;index:idx_bids_auction_order" json:"auction_id"`
-	Bidder    string `gorm:"type:char(42);not null;index" json:"bidder"`
+	ContractAddress string `gorm:"column:contract_address;type:char(42);not null;uniqueIndex:uk_bid_log,priority:2;index:idx_bids_auction_order,priority:2" json:"contract_address"`
 
-	BidToken  string `gorm:"column:bid_token;type:char(42);not null;index" json:"bid_token"`
-	Amount    string `gorm:"type:varchar(78);not null" json:"amount"`
+	// 业务归属：这笔出价属于哪个拍卖。
+	AuctionID uint64 `gorm:"column:auction_id;not null;index:idx_bids_auction_order,priority:3" json:"auction_id"`
+
+	// 出价人地址。
+	Bidder string `gorm:"column:bidder;type:char(42);not null;index:idx_bids_bidder" json:"bidder"`
+
+	// 出价资产。
+	// 如果 bid_token 是零地址，表示使用 ETH 出价。
+	// 如果不是零地址，表示使用 ERC20 出价。
+	BidToken string `gorm:"column:bid_token;type:char(42);not null;index:idx_bids_bid_token" json:"bid_token"`
+
+	// 原始出价金额，按链上最小单位保存。
+	// ETH 是 wei，ERC20 是 token 最小单位。
+	Amount string `gorm:"column:amount;type:varchar(78);not null" json:"amount"`
+
+	// 折算后的 USD 金额，通常是 18 位精度。
 	AmountUSD string `gorm:"column:amount_usd;type:varchar(78);not null" json:"amount_usd"`
 
-	TxHash      string `gorm:"column:tx_hash;type:char(66);not null;uniqueIndex:uk_bid_log" json:"tx_hash"`
-	LogIndex    uint64 `gorm:"column:log_index;not null;uniqueIndex:uk_bid_log;index:idx_bids_auction_order" json:"log_index"`
-	BlockNumber uint64 `gorm:"column:block_number;not null;index;index:idx_bids_auction_order" json:"block_number"`
-	BlockHash   string `gorm:"column:block_hash;type:char(66)" json:"block_hash"`
+	// 这条 BidPlaced 事件所在交易。
+	TxHash string `gorm:"column:tx_hash;type:char(66);not null;uniqueIndex:uk_bid_log,priority:3" json:"tx_hash"`
 
-	CreatedAt time.Time `json:"created_at"`
+	// 这条 log 在交易 receipt 中的位置。
+	// 同一个 tx 里可能有多条 log，所以只用 tx_hash 不够，必须加 log_index。
+	LogIndex uint64 `gorm:"column:log_index;not null;uniqueIndex:uk_bid_log,priority:4;index:idx_bids_auction_order,priority:5" json:"log_index"`
+
+	// 这条事件所在区块号。
+	BlockNumber uint64 `gorm:"column:block_number;not null;index:idx_bids_block_number;index:idx_bids_auction_order,priority:4" json:"block_number"`
+
+	// 这条事件所在区块 hash。
+	// 后续做 reorg 检测时很重要。
+	BlockHash string `gorm:"column:block_hash;type:char(66);not null" json:"block_hash"`
+
+	// 数据写入数据库的时间。
+	// 注意：这不是链上出价时间，只是后端索引到这条事件的时间。
+	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
 }
 
 func (Bid) TableName() string {
 	return "bids"
 }
-
-/*
-CREATE TABLE bids (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-
-  chain_id BIGINT NOT NULL,
-  contract_address CHAR(42) NOT NULL,
-
-  auction_id BIGINT UNSIGNED NOT NULL,
-  bidder CHAR(42) NOT NULL,
-
-  bid_token CHAR(42) NOT NULL,
-  amount VARCHAR(78) NOT NULL,
-  amount_usd VARCHAR(78) NOT NULL,
-
-  tx_hash CHAR(66) NOT NULL,
-  log_index BIGINT UNSIGNED NOT NULL,
-  block_number BIGINT UNSIGNED NOT NULL,
-  block_hash CHAR(66),
-
-  created_at DATETIME,
-
-  UNIQUE KEY uk_bid_log (
-    chain_id,
-    contract_address,
-    tx_hash,
-    log_index
-  ),
-
-  INDEX idx_bids_auction_order (
-    chain_id,
-    contract_address,
-    auction_id,
-    block_number,
-    log_index
-  ),
-
-  INDEX idx_bids_bidder (bidder),
-  INDEX idx_bids_bid_token (bid_token),
-  INDEX idx_bids_block_number (block_number)
-);
-*/

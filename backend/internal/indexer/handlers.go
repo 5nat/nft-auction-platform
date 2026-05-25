@@ -14,6 +14,8 @@ func (idx *Indexer) processAuctionCreated(ctx context.Context, lg types.Log) (bo
 		return false, fmt.Errorf("failed to parse AuctionCreated: %w", err)
 	}
 
+	meta := newEventMeta(EventNameAuctionCreated, lg)
+
 	inserted := false
 
 	err = idx.repo.WithTx(ctx, func(repo EventRepository) error {
@@ -37,21 +39,34 @@ func (idx *Indexer) processAuctionCreated(ctx context.Context, lg types.Log) (bo
 		}
 
 		auction := model.Auction{
-			ChainID:            idx.chainID,
-			ContractAddress:    normalizeAddress(idx.marketAddress),
-			AuctionID:          event.AuctionId.Uint64(),
-			Seller:             normalizeAddress(event.Seller),
-			NFTContract:        normalizeAddress(event.Nft),
-			TokenID:            event.TokenId.String(),
-			MinBidUSD:          event.MinBidUsd.String(),
-			HighestBidder:      "",
-			HighestBidToken:    "",
-			HighestBidAmount:   "0",
-			HighestBidUSD:      "0",
-			EndTime:            event.EndTime.Uint64(),
-			Status:             model.AuctionStatusActive,
-			CreatedTxHash:      normalizeHash(lg.TxHash),
-			CreatedBlockNumber: lg.BlockNumber,
+			ChainID:         idx.chainID,
+			ContractAddress: normalizeAddress(idx.marketAddress),
+			AuctionID:       event.AuctionId.Uint64(),
+
+			Seller:      normalizeAddress(event.Seller),
+			NFTContract: normalizeAddress(event.Nft),
+			TokenID:     event.TokenId.String(),
+
+			MinBidUSD: event.MinBidUsd.String(),
+
+			HighestBidder:    "",
+			HighestBidToken:  "",
+			HighestBidAmount: "0",
+			HighestBidUSD:    "0",
+
+			EndTime: event.EndTime.Uint64(),
+			Status:  model.AuctionStatusActive,
+
+			CreatedTxHash:      meta.TxHash,
+			CreatedBlockNumber: meta.BlockNumber,
+			CreatedBlockHash:   meta.BlockHash,
+			CreatedLogIndex:    meta.LogIndex,
+
+			LastEventName:        meta.EventName,
+			LastEventTxHash:      meta.TxHash,
+			LastEventBlockNumber: meta.BlockNumber,
+			LastEventBlockHash:   meta.BlockHash,
+			LastEventLogIndex:    meta.LogIndex,
 		}
 
 		return repo.CreateAuction(ctx, auction)
@@ -91,6 +106,8 @@ func (idx *Indexer) processBidPlaced(ctx context.Context, lg types.Log) (bool, e
 		return false, fmt.Errorf("failed to parse BidPlaced: %w", err)
 	}
 
+	meta := newEventMeta(EventNameBidPlaced, lg)
+
 	inserted := false
 
 	err = idx.repo.WithTx(ctx, func(repo EventRepository) error {
@@ -114,15 +131,18 @@ func (idx *Indexer) processBidPlaced(ctx context.Context, lg types.Log) (bool, e
 		bid := model.Bid{
 			ChainID:         idx.chainID,
 			ContractAddress: normalizeAddress(idx.marketAddress),
-			AuctionID:       auctionID,
-			Bidder:          normalizeAddress(event.Bidder),
-			BidToken:        normalizeAddress(event.BidToken),
-			Amount:          event.Amount.String(),
-			AmountUSD:       event.AmountUsd.String(),
-			TxHash:          normalizeHash(lg.TxHash),
-			LogIndex:        uint64(lg.Index),
-			BlockNumber:     lg.BlockNumber,
-			BlockHash:       normalizeHash(lg.BlockHash),
+
+			AuctionID: auctionID,
+			Bidder:    normalizeAddress(event.Bidder),
+
+			BidToken:  normalizeAddress(event.BidToken),
+			Amount:    event.Amount.String(),
+			AmountUSD: event.AmountUsd.String(),
+
+			TxHash:      meta.TxHash,
+			LogIndex:    meta.LogIndex,
+			BlockNumber: meta.BlockNumber,
+			BlockHash:   meta.BlockHash,
 		}
 
 		if createBidErr := repo.CreateBid(ctx, bid); createBidErr != nil {
@@ -131,10 +151,13 @@ func (idx *Indexer) processBidPlaced(ctx context.Context, lg types.Log) (bool, e
 
 		return repo.UpdateAuctionHighestBid(ctx, UpdateAuctionHighestBidInput{
 			AuctionID: auctionID,
+
 			Bidder:    normalizeAddress(event.Bidder),
 			BidToken:  normalizeAddress(event.BidToken),
 			Amount:    event.Amount.String(),
 			AmountUSD: event.AmountUsd.String(),
+
+			Event: meta,
 		})
 	})
 
@@ -172,6 +195,8 @@ func (idx *Indexer) processAuctionEnded(ctx context.Context, lg types.Log) (bool
 		return false, fmt.Errorf("failed to parse AuctionEnded: %w", err)
 	}
 
+	meta := newEventMeta(EventNameAuctionEnded, lg)
+
 	inserted := false
 
 	err = idx.repo.WithTx(ctx, func(repo EventRepository) error {
@@ -194,10 +219,13 @@ func (idx *Indexer) processAuctionEnded(ctx context.Context, lg types.Log) (bool
 
 		return repo.MarkAuctionEnded(ctx, MarkAuctionEndedInput{
 			AuctionID: auctionID,
+
 			Winner:    normalizeAddress(event.Winner),
 			BidToken:  normalizeAddress(event.BidToken),
 			Amount:    event.Amount.String(),
 			AmountUSD: event.AmountUsd.String(),
+
+			Event: meta,
 		})
 	})
 
@@ -236,6 +264,8 @@ func (idx *Indexer) processAuctionCancelled(ctx context.Context, lg types.Log) (
 		return false, fmt.Errorf("failed to parse AuctionCancelled: %w", err)
 	}
 
+	meta := newEventMeta(EventNameAuctionCancelled, lg)
+
 	inserted := false
 
 	err = idx.repo.WithTx(ctx, func(repo EventRepository) error {
@@ -258,6 +288,7 @@ func (idx *Indexer) processAuctionCancelled(ctx context.Context, lg types.Log) (
 
 		return repo.MarkAuctionCancelled(ctx, MarkAuctionCancelledInput{
 			AuctionID: auctionID,
+			Event:     meta,
 		})
 	})
 

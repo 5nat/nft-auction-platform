@@ -114,10 +114,13 @@ func (r *Repository) CreateBid(ctx context.Context, bid model.Bid) error {
 
 type UpdateAuctionHighestBidInput struct {
 	AuctionID uint64
+
 	Bidder    string
 	BidToken  string
 	Amount    string
 	AmountUSD string
+
+	Event EventMeta
 }
 
 func (r *Repository) UpdateAuctionHighestBid(ctx context.Context, input UpdateAuctionHighestBidInput) error {
@@ -134,6 +137,12 @@ func (r *Repository) UpdateAuctionHighestBid(ctx context.Context, input UpdateAu
 			"highest_bid_token":  input.BidToken,
 			"highest_bid_amount": input.Amount,
 			"highest_bid_usd":    input.AmountUSD,
+
+			"last_event_name":         input.Event.EventName,
+			"last_event_tx_hash":      input.Event.TxHash,
+			"last_event_block_number": input.Event.BlockNumber,
+			"last_event_block_hash":   input.Event.BlockHash,
+			"last_event_log_index":    input.Event.LogIndex,
 		})
 
 	if res.Error != nil {
@@ -149,10 +158,13 @@ func (r *Repository) UpdateAuctionHighestBid(ctx context.Context, input UpdateAu
 
 type MarkAuctionEndedInput struct {
 	AuctionID uint64
+
 	Winner    string
 	BidToken  string
 	Amount    string
 	AmountUSD string
+
+	Event EventMeta
 }
 
 func (r *Repository) MarkAuctionEnded(ctx context.Context, input MarkAuctionEndedInput) error {
@@ -164,11 +176,18 @@ func (r *Repository) MarkAuctionEnded(ctx context.Context, input MarkAuctionEnde
 			r.contractAddress,
 			input.AuctionID,
 		).Updates(map[string]any{
-		"status":             model.AuctionStatusEnded,
+		"status": model.AuctionStatusEnded,
+
 		"highest_bidder":     input.Winner,
 		"highest_bid_token":  input.BidToken,
 		"highest_bid_amount": input.Amount,
 		"highest_bid_usd":    input.AmountUSD,
+
+		"last_event_name":         input.Event.EventName,
+		"last_event_tx_hash":      input.Event.TxHash,
+		"last_event_block_number": input.Event.BlockNumber,
+		"last_event_block_hash":   input.Event.BlockHash,
+		"last_event_log_index":    input.Event.LogIndex,
 	})
 
 	if res.Error != nil {
@@ -184,6 +203,7 @@ func (r *Repository) MarkAuctionEnded(ctx context.Context, input MarkAuctionEnde
 
 type MarkAuctionCancelledInput struct {
 	AuctionID uint64
+	Event     EventMeta
 }
 
 func (r *Repository) MarkAuctionCancelled(ctx context.Context, input MarkAuctionCancelledInput) error {
@@ -197,6 +217,12 @@ func (r *Repository) MarkAuctionCancelled(ctx context.Context, input MarkAuction
 		).
 		Updates(map[string]any{
 			"status": model.AuctionStatusCancelled,
+
+			"last_event_name":         input.Event.EventName,
+			"last_event_tx_hash":      input.Event.TxHash,
+			"last_event_block_number": input.Event.BlockNumber,
+			"last_event_block_hash":   input.Event.BlockHash,
+			"last_event_log_index":    input.Event.LogIndex,
 		})
 
 	if res.Error != nil {
