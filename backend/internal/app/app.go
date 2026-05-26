@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/5nat/nft-auction-platform/backend/internal/api"
-	"github.com/5nat/nft-auction-platform/backend/internal/chain"
 	"github.com/5nat/nft-auction-platform/backend/internal/config"
-	"github.com/5nat/nft-auction-platform/backend/internal/indexer"
-	"github.com/5nat/nft-auction-platform/backend/internal/store"
+	ethinfra "github.com/5nat/nft-auction-platform/backend/internal/infra/blockchain/ethereum"
+	mysql "github.com/5nat/nft-auction-platform/backend/internal/infra/persistence/mysql"
+	httptransport "github.com/5nat/nft-auction-platform/backend/internal/transport/http"
+	"github.com/5nat/nft-auction-platform/backend/internal/workers/indexer"
 	"github.com/gin-gonic/gin"
 )
 
@@ -31,10 +31,10 @@ type App struct {
 	server *http.Server
 
 	// 数据库连接。
-	db *store.DB
+	db *mysql.DB
 
 	// 链客户端。Indexer 需要用它访问 RPC。
-	chainClient *chain.Client
+	chainClient *ethinfra.Client
 
 	// 链上事件同步器。
 	// 当 cfg.Indexer.Enabled = false 时，这个字段可以为 nil。
@@ -54,7 +54,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 
 	// 初始化数据库连接。
 	// 这里使用 ctx 是为了让连接过程可以被取消。
-	db, err := store.NewMySQL(ctx, cfg.Database.MySQLDSN)
+	db, err := mysql.NewMySQL(ctx, cfg.Database.MySQLDSN)
 	if err != nil {
 		return nil, fmt.Errorf("connect database: %w", err)
 	}
@@ -64,9 +64,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	// 创建 HTTP router。
 	// Dependencies 是一种显式依赖注入方式。
 	// 这样 handler 不需要自己创建 DB 或 logger，而是从外部传入。
-	router := api.NewRouter(api.Dependencies{
+	router := httptransport.NewRouter(httptransport.Dependencies{
 		Logger:    logger,
 		DB:        db,
+		Config:    cfg,
 		StartedAt: startedAt,
 	})
 
@@ -80,7 +81,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
 
-	var chainClient *chain.Client
+	var chainClient *ethinfra.Client
 	var auctionIndexer *indexer.Indexer
 
 	// 根据配置决定是否在 API 服务进程中同时启动 Indexer。
@@ -88,7 +89,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	// 本地开发时可以 API + Indexer 跑在一个进程里；
 	// 生产环境中也可以把 API 和 Indexer 拆成两个独立进程部署。
 	if cfg.Indexer.Enabled {
-		chainClient, err = chain.NewClient(ctx, cfg.Chain, logger)
+		chainClient, err = ethinfra.NewClient(ctx, cfg.Chain, logger)
 		if err != nil {
 			// 如果链客户端初始化失败，需要关闭已经打开的 DB。
 			_ = db.Close()
