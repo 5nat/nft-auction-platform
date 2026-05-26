@@ -2,17 +2,6 @@ package model
 
 import "time"
 
-const (
-	// AuctionStatusActive 表示拍卖正在进行。
-	AuctionStatusActive = "active"
-
-	// AuctionStatusEnded 表示拍卖已经正常结束。
-	AuctionStatusEnded = "ended"
-
-	// AuctionStatusCancelled 表示拍卖已被取消。
-	AuctionStatusCancelled = "cancelled"
-)
-
 type Auction struct {
 	// ID 是数据库内部自增主键。
 	// 它只用于数据库内部定位记录，不代表链上的 auctionId。

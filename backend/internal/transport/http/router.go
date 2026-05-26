@@ -27,14 +27,15 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	router.GET("/health", HealthHandler(deps))
 
 	apiV1 := router.Group("/api/v1")
-	auctionRepo := auction.NewGormRepository(deps.DB.Gorm)
+	auctionRepo := mysql.NewAuctionRepository(deps.DB.Gorm)
 	auctionService := auction.NewService(auctionRepo, auction.ServiceConfig{
 		DefaultChainID:         deps.Config.Chain.ChainID,
 		DefaultContractAddress: deps.Config.Chain.AuctionContract,
 	})
-	auctionHandler := auction.NewHandler(auctionService, deps.Logger)
-
-	auction.RegisterRoutes(apiV1, auctionHandler)
+	auctionHandler := NewAuctionHandler(auctionService, deps.Logger)
+	apiV1.GET("/auctions", auctionHandler.ListAuctions)
+	apiV1.GET("/auctions/:auctionId", auctionHandler.GetAuction)
+	apiV1.GET("/auctions/:auctionId/bids", auctionHandler.ListBids)
 
 	return router
 }

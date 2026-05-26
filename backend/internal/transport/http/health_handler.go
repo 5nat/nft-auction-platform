@@ -1,49 +1,55 @@
 package httptransport
 
 import (
-	"context"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-type HealthResponse struct {
-	Status    string `json:"status"`
-	Database  string `json:"database"`
-	Uptime    string `json:"uptime"`
-	Timestamp string `json:"timestamp"`
-}
-
 func HealthHandler(deps Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		dbStatus := "ok"
-		statusCode := http.StatusOK
-		code := CodeOk
-		message := "ok"
+		now := time.Now()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
+		if deps.DB == nil || deps.DB.Gorm == nil {
+			if deps.Logger != nil {
+				deps.Logger.Error("health check failed", "reason", "database is nil")
+			}
 
-		if err := deps.DB.SQLDB.PingContext(ctx); err != nil {
-			dbStatus = "down"
-			statusCode = http.StatusServiceUnavailable
-			code = CodeDatabaseDown
-			message = "database down"
-			deps.Logger.Error("database health check failed", "error", err)
+			Error(c, http.StatusServiceUnavailable, CodeDatabaseDown, "database is unavailable")
+			return
 		}
 
-		resp := HealthResponse{
-			Status:    "ok",
-			Database:  dbStatus,
-			Uptime:    time.Since(deps.StartedAt).String(),
-			Timestamp: time.Now().Format(time.RFC3339),
+		sqlDB, err := deps.DB.Gorm.DB()
+		if err != nil {
+			if deps.Logger != nil {
+				deps.Logger.Error("get sql db failed", "error", err)
+			}
+
+			Error(c, http.StatusServiceUnavailable, CodeDatabaseDown, "database is unavailable")
+			return
 		}
 
-		if dbStatus != "ok" {
-			resp.Status = "degraded"
+		if pingErr := sqlDB.PingContext(c.Request.Context()); pingErr != nil {
+			if deps.Logger != nil {
+				deps.Logger.Error("database ping failed", "error", pingErr)
+			}
+
+			Error(c, http.StatusServiceUnavailable, CodeDatabaseDown, "database is unavailable")
+			return
 		}
 
-		JSON(c, statusCode, code, message, resp)
+		uptimeSeconds := int64(0)
+		if !deps.StartedAt.IsZero() {
+			uptimeSeconds = int64(now.Sub(deps.StartedAt).Seconds())
+		}
+
+		OK(c, gin.H{
+			"status":         "ok",
+			"database":       "ok",
+			"started_at":     deps.StartedAt,
+			"now":            now,
+			"uptime_seconds": uptimeSeconds,
+		})
 	}
 }

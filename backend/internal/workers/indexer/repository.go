@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/5nat/nft-auction-platform/backend/internal/infra/persistence/mysql/model"
+	auctiondomain "github.com/5nat/nft-auction-platform/backend/internal/modules/auction"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"gorm.io/gorm"
@@ -176,7 +177,7 @@ func (r *Repository) MarkAuctionEnded(ctx context.Context, input MarkAuctionEnde
 			r.contractAddress,
 			input.AuctionID,
 		).Updates(map[string]any{
-		"status": model.AuctionStatusEnded,
+		"status": auctiondomain.AuctionStatusEnded,
 
 		"highest_bidder":     input.Winner,
 		"highest_bid_token":  input.BidToken,
@@ -216,7 +217,7 @@ func (r *Repository) MarkAuctionCancelled(ctx context.Context, input MarkAuction
 			input.AuctionID,
 		).
 		Updates(map[string]any{
-			"status": model.AuctionStatusCancelled,
+			"status": auctiondomain.AuctionStatusCancelled,
 
 			"last_event_name":         input.Event.EventName,
 			"last_event_tx_hash":      input.Event.TxHash,

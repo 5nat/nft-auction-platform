@@ -5,7 +5,6 @@ import (
 	"math"
 	"strings"
 
-	"github.com/5nat/nft-auction-platform/backend/internal/infra/persistence/mysql/model"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -206,7 +205,7 @@ func normalizeStatus(status string) (string, error) {
 	}
 
 	switch status {
-	case model.AuctionStatusActive, model.AuctionStatusEnded, model.AuctionStatusCancelled:
+	case AuctionStatusActive, AuctionStatusEnded, AuctionStatusCancelled:
 		return status, nil
 	default:
 		return "", NewValidationError("invalid status")
@@ -254,7 +253,7 @@ func buildPageMeta(page int, pageSize int, total int64) PageMeta {
 	}
 }
 
-func toAuctionDTO(item model.Auction) AuctionDTO {
+func toAuctionDTO(item Auction) AuctionDTO {
 	return AuctionDTO{
 		ChainID:         item.ChainID,
 		ContractAddress: item.ContractAddress,
@@ -290,7 +289,7 @@ func toAuctionDTO(item model.Auction) AuctionDTO {
 	}
 }
 
-func toBidDTO(item model.Bid) BidDTO {
+func toBidDTO(item Bid) BidDTO {
 	return BidDTO{
 		ChainID:         item.ChainID,
 		ContractAddress: item.ContractAddress,

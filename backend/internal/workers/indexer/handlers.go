@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/5nat/nft-auction-platform/backend/internal/infra/persistence/mysql/model"
+	auctiondomain "github.com/5nat/nft-auction-platform/backend/internal/modules/auction"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
@@ -55,7 +56,7 @@ func (idx *Indexer) processAuctionCreated(ctx context.Context, lg types.Log) (bo
 			HighestBidUSD:    "0",
 
 			EndTime: event.EndTime.Uint64(),
-			Status:  model.AuctionStatusActive,
+			Status:  auctiondomain.AuctionStatusActive,
 
 			CreatedTxHash:      meta.TxHash,
 			CreatedBlockNumber: meta.BlockNumber,
