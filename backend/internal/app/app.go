@@ -64,12 +64,20 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	// 创建 HTTP router。
 	// Dependencies 是一种显式依赖注入方式。
 	// 这样 handler 不需要自己创建 DB 或 logger，而是从外部传入。
-	router := httptransport.NewRouter(httptransport.Dependencies{
+	httpDeps := httptransport.Dependencies{
 		Logger:    logger,
 		DB:        db,
 		Config:    cfg,
-		StartedAt: startedAt,
-	})
+		StartedAt: time.Now(),
+	}
+
+	handlers, err := httptransport.BuildHandlers(httpDeps)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("build http handlers: %w", err)
+	}
+
+	router := httptransport.NewRouter(httpDeps, handlers)
 
 	// 创建标准库 http.Server。
 	// Gin 本质上是 Handler，真正负责监听端口的是 http.Server。

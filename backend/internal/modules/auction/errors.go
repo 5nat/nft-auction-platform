@@ -7,6 +7,10 @@ var (
 	ErrAuctionNotActive  = errors.New("auction not active")
 	ErrAuctionExpired    = errors.New("auction expired")
 	ErrAuctionNotExpired = errors.New("auction not expired")
+	ErrForbidden         = errors.New("auction action forbidden")
+	ErrSellerCannotBid   = errors.New("seller cannot bid on own auction")
+	ErrInvalidActor      = errors.New("invalid auction actor")
+	ErrChainMismatch     = errors.New("actor chain id does not match auction chain id")
 )
 
 type ValidationError struct {

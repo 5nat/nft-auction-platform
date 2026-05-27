@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/5nat/nft-auction-platform/backend/internal/modules/auth"
 	txmodule "github.com/5nat/nft-auction-platform/backend/internal/modules/tx"
+	"github.com/5nat/nft-auction-platform/backend/internal/transport/http/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -30,11 +32,18 @@ func NewTxHandler(service TxService, logger *slog.Logger) *TxHandler {
 }
 
 func (h *TxHandler) BuildApproveNFTTx(c *gin.Context) {
+	currentUser, ok := requireCurrentUser(c)
+	if !ok {
+		return
+	}
+
 	var req txmodule.BuildApproveNFTTxRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Error(c, http.StatusBadRequest, CodeBadRequest, "invalid request body")
 		return
 	}
+
+	req.Actor = txmodule.ActorFromAuth(currentUser)
 
 	result, err := h.service.BuildApproveNFTTx(c.Request.Context(), req)
 	if err != nil {
@@ -46,11 +55,18 @@ func (h *TxHandler) BuildApproveNFTTx(c *gin.Context) {
 }
 
 func (h *TxHandler) BuildCreateAuctionTx(c *gin.Context) {
+	currentUser, ok := requireCurrentUser(c)
+	if !ok {
+		return
+	}
+
 	var req txmodule.BuildCreateAuctionTxRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Error(c, http.StatusBadRequest, CodeBadRequest, "invalid request body")
 		return
 	}
+
+	req.Actor = txmodule.ActorFromAuth(currentUser)
 
 	result, err := h.service.BuildCreateAuctionTx(c.Request.Context(), req)
 	if err != nil {
@@ -62,11 +78,18 @@ func (h *TxHandler) BuildCreateAuctionTx(c *gin.Context) {
 }
 
 func (h *TxHandler) BuildPlaceBidTx(c *gin.Context) {
+	currentUser, ok := requireCurrentUser(c)
+	if !ok {
+		return
+	}
+
 	var req txmodule.BuildPlaceBidTxRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Error(c, http.StatusBadRequest, CodeBadRequest, "invalid request body")
 		return
 	}
+
+	req.Actor = txmodule.ActorFromAuth(currentUser)
 
 	result, err := h.service.BuildPlaceBidTx(c.Request.Context(), req)
 	if err != nil {
@@ -78,11 +101,18 @@ func (h *TxHandler) BuildPlaceBidTx(c *gin.Context) {
 }
 
 func (h *TxHandler) BuildCancelAuctionTx(c *gin.Context) {
+	currentUser, ok := requireCurrentUser(c)
+	if !ok {
+		return
+	}
+
 	var req txmodule.BuildCancelAuctionTxRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Error(c, http.StatusBadRequest, CodeBadRequest, "invalid request body")
 		return
 	}
+
+	req.Actor = txmodule.ActorFromAuth(currentUser)
 
 	result, err := h.service.BuildCancelAuctionTx(c.Request.Context(), req)
 	if err != nil {
@@ -94,11 +124,18 @@ func (h *TxHandler) BuildCancelAuctionTx(c *gin.Context) {
 }
 
 func (h *TxHandler) BuildEndAuctionTx(c *gin.Context) {
+	currentUser, ok := requireCurrentUser(c)
+	if !ok {
+		return
+	}
+
 	var req txmodule.BuildEndAuctionTxRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Error(c, http.StatusBadRequest, CodeBadRequest, "invalid request body")
 		return
 	}
+
+	req.Actor = txmodule.ActorFromAuth(currentUser)
 
 	result, err := h.service.BuildEndAuctionTx(c.Request.Context(), req)
 	if err != nil {
@@ -107,4 +144,14 @@ func (h *TxHandler) BuildEndAuctionTx(c *gin.Context) {
 	}
 
 	OK(c, result)
+}
+
+func requireCurrentUser(c *gin.Context) (*auth.CurrentUser, bool) {
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok || currentUser == nil {
+		Error(c, http.StatusUnauthorized, CodeUnauthorized, "unauthorized")
+		return nil, false
+	}
+
+	return currentUser, true
 }

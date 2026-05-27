@@ -36,8 +36,16 @@ func NewService(builder CalldataBuilder, cfg ServiceConfig, auctionRepo auctionm
 }
 
 func (s *Service) BuildApproveNFTTx(ctx context.Context, req BuildApproveNFTTxRequest) (TransactionRequestDTO, error) {
+	if err := ensureActor(req.Actor); err != nil {
+		return TransactionRequestDTO{}, err
+	}
+
 	normalizedReq, err := s.normalizeApproveNFTRequest(req)
 	if err != nil {
+		return TransactionRequestDTO{}, err
+	}
+
+	if err := ensureActorMatchesRequestChain(req.Actor, normalizedReq.ChainID); err != nil {
 		return TransactionRequestDTO{}, err
 	}
 
@@ -55,8 +63,16 @@ func (s *Service) BuildApproveNFTTx(ctx context.Context, req BuildApproveNFTTxRe
 }
 
 func (s *Service) BuildCreateAuctionTx(ctx context.Context, req BuildCreateAuctionTxRequest) (TransactionRequestDTO, error) {
+	if err := ensureActor(req.Actor); err != nil {
+		return TransactionRequestDTO{}, err
+	}
+
 	normalizedReq, err := s.normalizeCreateAuctionRequest(req)
 	if err != nil {
+		return TransactionRequestDTO{}, err
+	}
+
+	if err := ensureActorMatchesRequestChain(req.Actor, normalizedReq.ChainID); err != nil {
 		return TransactionRequestDTO{}, err
 	}
 
@@ -74,12 +90,20 @@ func (s *Service) BuildCreateAuctionTx(ctx context.Context, req BuildCreateAucti
 }
 
 func (s *Service) BuildPlaceBidTx(ctx context.Context, req BuildPlaceBidTxRequest) (TransactionRequestDTO, error) {
+	if err := ensureActor(req.Actor); err != nil {
+		return TransactionRequestDTO{}, err
+	}
+
 	normalizedReq, err := s.normalizePlaceBidRequest(req)
 	if err != nil {
 		return TransactionRequestDTO{}, err
 	}
 
-	if err := s.ensureCanPlaceBid(ctx, normalizedReq.AuctionID); err != nil {
+	if err := ensureActorMatchesRequestChain(req.Actor, normalizedReq.ChainID); err != nil {
+		return TransactionRequestDTO{}, err
+	}
+
+	if err := s.ensureCanPlaceBid(ctx, req.Actor, normalizedReq.AuctionID); err != nil {
 		return TransactionRequestDTO{}, err
 	}
 
@@ -102,16 +126,24 @@ func (s *Service) BuildPlaceBidTx(ctx context.Context, req BuildPlaceBidTxReques
 }
 
 func (s *Service) BuildCancelAuctionTx(ctx context.Context, req BuildCancelAuctionTxRequest) (TransactionRequestDTO, error) {
+	if err := ensureActor(req.Actor); err != nil {
+		return TransactionRequestDTO{}, err
+	}
+
 	normalizedReq, err := s.normalizeCancelAuctionRequest(req)
 	if err != nil {
 		return TransactionRequestDTO{}, err
 	}
 
-	if err := s.ensureCanCancel(ctx, normalizedReq.AuctionID); err != nil {
+	if err := ensureActorMatchesRequestChain(req.Actor, normalizedReq.ChainID); err != nil {
 		return TransactionRequestDTO{}, err
 	}
 
-	data, err := s.builder.BuildCancelAuctionCalldata(ctx, req)
+	if err := s.ensureCanCancel(ctx, req.Actor, normalizedReq.AuctionID); err != nil {
+		return TransactionRequestDTO{}, err
+	}
+
+	data, err := s.builder.BuildCancelAuctionCalldata(ctx, normalizedReq)
 	if err != nil {
 		return TransactionRequestDTO{}, err
 	}
@@ -125,12 +157,20 @@ func (s *Service) BuildCancelAuctionTx(ctx context.Context, req BuildCancelAucti
 }
 
 func (s *Service) BuildEndAuctionTx(ctx context.Context, req BuildEndAuctionTxRequest) (TransactionRequestDTO, error) {
+	if err := ensureActor(req.Actor); err != nil {
+		return TransactionRequestDTO{}, err
+	}
+
 	normalizedReq, err := s.normalizeEndAuctionRequest(req)
 	if err != nil {
 		return TransactionRequestDTO{}, err
 	}
 
-	if err := s.ensureCanEnd(ctx, normalizedReq.AuctionID); err != nil {
+	if err := ensureActorMatchesRequestChain(req.Actor, normalizedReq.ChainID); err != nil {
+		return TransactionRequestDTO{}, err
+	}
+
+	if err := s.ensureCanEnd(ctx, req.Actor, normalizedReq.AuctionID); err != nil {
 		return TransactionRequestDTO{}, err
 	}
 
@@ -147,7 +187,7 @@ func (s *Service) BuildEndAuctionTx(ctx context.Context, req BuildEndAuctionTxRe
 	}, nil
 }
 
-func (s *Service) ensureCanPlaceBid(ctx context.Context, auctionID uint64) error {
+func (s *Service) ensureCanPlaceBid(ctx context.Context, actor Actor, auctionID uint64) error {
 	if s.auctionRepo == nil {
 		return nil
 	}
@@ -159,10 +199,12 @@ func (s *Service) ensureCanPlaceBid(ctx context.Context, auctionID uint64) error
 		return err
 	}
 
-	return s.policy.EnsureCanPlaceBid(a, time.Now())
+	auctionActor := auctionmodule.NewActor(actor.WalletAddress, actor.ChainID)
+
+	return s.policy.EnsureCanPlaceBid(a, auctionActor, time.Now().UTC())
 }
 
-func (s *Service) ensureCanCancel(ctx context.Context, auctionID uint64) error {
+func (s *Service) ensureCanCancel(ctx context.Context, actor Actor, auctionID uint64) error {
 	if s.auctionRepo == nil {
 		return nil
 	}
@@ -174,10 +216,12 @@ func (s *Service) ensureCanCancel(ctx context.Context, auctionID uint64) error {
 		return err
 	}
 
-	return s.policy.EnsureCanCancel(a, time.Now())
+	auctionActor := auctionmodule.NewActor(actor.WalletAddress, actor.ChainID)
+
+	return s.policy.EnsureCanCancel(a, auctionActor, time.Now().UTC())
 }
 
-func (s *Service) ensureCanEnd(ctx context.Context, auctionID uint64) error {
+func (s *Service) ensureCanEnd(ctx context.Context, actor Actor, auctionID uint64) error {
 	if s.auctionRepo == nil {
 		return nil
 	}
@@ -189,7 +233,9 @@ func (s *Service) ensureCanEnd(ctx context.Context, auctionID uint64) error {
 		return err
 	}
 
-	return s.policy.EnsureCanEnd(a, time.Now())
+	auctionActor := auctionmodule.NewActor(actor.WalletAddress, actor.ChainID)
+
+	return s.policy.EnsureCanEnd(a, auctionActor, time.Now().UTC())
 }
 
 func (s *Service) normalizeApproveNFTRequest(req BuildApproveNFTTxRequest) (BuildApproveNFTTxRequest, error) {
@@ -375,4 +421,34 @@ func normalizeBidToken(token string) string {
 
 func isETHBidToken(token string) bool {
 	return common.HexToAddress(token) == common.Address{}
+}
+
+func ensureActor(actor Actor) error {
+	if actor.IsZero() {
+		return ErrUnauthorized
+	}
+	return nil
+}
+
+// ensureActorMatchesRequestChain 校验登录态中的 chain_id 和本次请求的 chain_id 是否一致。
+//
+// 为什么需要这一步？
+// 因为 Actor.ChainID 来自 JWT，是登录时钱包所在链；
+// req.ChainID 来自前端请求体，前端可以伪造。
+// 如果不校验，用户可能用 Sepolia 登录，却请求后端构造 Mainnet 或 Anvil 的交易。
+// 虽然钱包最终可能会拒绝错误链交易，但后端应该在构造交易前先拦截。
+func ensureActorMatchesRequestChain(actor Actor, chainID int64) error {
+	if err := ensureActor(actor); err != nil {
+		return err
+	}
+
+	if chainID <= 0 {
+		return ErrInvalidChainID
+	}
+
+	if actor.ChainID != chainID {
+		return ErrActorChainMismatch
+	}
+
+	return nil
 }

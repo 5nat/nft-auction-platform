@@ -24,7 +24,7 @@ type Wallet struct {
 	// ChainID 表示钱包所属链。
 	// address + chain_id 联合唯一，避免同一条链上的同一钱包被绑定到多个用户。
 	// 这样也为后续多链扩展预留空间。
-	ChainID uint64 `gorm:"column:chain_id;not null;uniqueIndex:uk_wallet_address_chain,priority:2"`
+	ChainID int64 `gorm:"column:chain_id;not null;uniqueIndex:uk_wallet_address_chain,priority:2"`
 
 	// IsPrimary 表示是否为用户主钱包。
 	// 当前一个用户可能只有一个钱包，但后续支持多钱包时，

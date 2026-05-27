@@ -17,7 +17,7 @@ type AuthNonce struct {
 
 	// ChainID 表示本次登录挑战所属链。
 	// SIWE message 中也包含 Chain ID，用于避免跨链或错误网络下的登录混淆。
-	ChainID uint64 `gorm:"column:chain_id;not null;index:idx_auth_nonce_address_chain,priority:2"`
+	ChainID int64 `gorm:"column:chain_id;not null;index:idx_auth_nonce_address_chain,priority:2"`
 
 	// Nonce 是服务端生成的一次性随机字符串。
 	// 它用于防止重放攻击：同一份 message + signature 只能成功登录一次。

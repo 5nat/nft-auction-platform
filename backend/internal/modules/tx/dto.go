@@ -1,6 +1,8 @@
 package tx
 
 type BuildApproveNFTTxRequest struct {
+	Actor Actor `json:"-"`
+
 	ChainID int64 `json:"chain_id"`
 
 	// NFT 合约地址，交易会发到这个地址。
@@ -15,6 +17,8 @@ type BuildApproveNFTTxRequest struct {
 }
 
 type BuildCreateAuctionTxRequest struct {
+	Actor Actor `json:"-"`
+
 	ChainID         int64  `json:"chain_id"`
 	ContractAddress string `json:"contract_address"`
 
@@ -25,6 +29,8 @@ type BuildCreateAuctionTxRequest struct {
 }
 
 type BuildPlaceBidTxRequest struct {
+	Actor Actor `json:"-"`
+
 	ChainID         int64  `json:"chain_id"`
 	ContractAddress string `json:"contract_address"`
 
@@ -37,18 +43,24 @@ type BuildPlaceBidTxRequest struct {
 }
 
 type BuildCancelAuctionTxRequest struct {
+	Actor Actor `json:"-"`
+
 	ChainID         int64  `json:"chain_id"`
 	ContractAddress string `json:"contract_address"`
 	AuctionID       uint64 `json:"auction_id"`
 }
 
 type BuildEndAuctionTxRequest struct {
+	Actor Actor `json:"-"`
+
 	ChainID         int64  `json:"chain_id"`
 	ContractAddress string `json:"contract_address"`
 	AuctionID       uint64 `json:"auction_id"`
 }
 
 type TransactionRequestDTO struct {
+	Actor Actor `json:"-"`
+
 	ChainID int64  `json:"chain_id"`
 	To      string `json:"to"`
 	Data    string `json:"data"`

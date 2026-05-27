@@ -14,6 +14,7 @@ type Config struct {
 	Database DatabaseConfig
 	Chain    ChainConfig
 	Indexer  IndexerConfig
+	Auth     AuthConfig
 }
 
 type ServerConfig struct {
@@ -44,6 +45,13 @@ type IndexerConfig struct {
 	PollInterval  time.Duration
 }
 
+type AuthConfig struct {
+	Domain         string
+	URI            string
+	JWTSecret      string
+	AccessTokenTTL time.Duration
+}
+
 func Load() (Config, error) {
 	_ = godotenv.Load()
 
@@ -71,6 +79,12 @@ func Load() (Config, error) {
 			Confirmations: getUint64Env("INDEXER_CONFIRMATIONS", 1),
 			BatchSize:     getUint64Env("INDEXER_BATCH_SIZE", 500),
 			PollInterval:  getDurationEnv("INDEXER_POLL_INTERVAL", 3*time.Second),
+		},
+		Auth: AuthConfig{
+			Domain:         getEnv("AUTH_DOMAIN", "localhost:8080"),
+			URI:            getEnv("AUTH_URI", "http://localhost:8080"),
+			JWTSecret:      getEnv("AUTH_JWT_SECRET", "dev-secret-change-me"),
+			AccessTokenTTL: getDurationEnv("AUTH_ACCESS_TOKEN_TTL", 24*time.Hour),
 		},
 	}
 

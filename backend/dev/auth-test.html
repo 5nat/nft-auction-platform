@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <title>NFT Auction Auth Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 960px;
+            margin: 40px auto;
+            line-height: 1.6;
+        }
+        button {
+            padding: 8px 14px;
+            margin: 6px 6px 6px 0;
+            cursor: pointer;
+        }
+        input, textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px;
+            margin: 6px 0 12px;
+            font-family: monospace;
+        }
+        textarea {
+            min-height: 140px;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .section {
+            border: 1px solid #ddd;
+            padding: 16px;
+            margin-bottom: 16px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+<h1>NFT Auction Wallet Login Test</h1>
+
+<div class="section">
+    <h2>1. 钱包连接</h2>
+    <button onclick="connectWallet()">连接 MetaMask</button>
+    <button onclick="switchToAnvil()">切换到 Anvil 31337</button>
+
+    <label>当前钱包地址</label>
+    <input id="address" placeholder="点击连接钱包后自动填充" />
+
+    <label>Chain ID</label>
+    <input id="chainId" value="31337" />
+</div>
+
+<div class="section">
+    <h2>2. 获取登录挑战 nonce</h2>
+    <button onclick="createNonce()">获取 /auth/nonce</button>
+
+    <label>Nonce</label>
+    <input id="nonce" readonly />
+
+    <label>Message，钱包要签名的完整内容</label>
+    <textarea id="message"></textarea>
+
+    <label>Expires At</label>
+    <input id="expiresAt" readonly />
+</div>
+
+<div class="section">
+    <h2>3. 钱包签名</h2>
+    <button onclick="signMessage()">使用 MetaMask personal_sign 签名</button>
+
+    <label>Signature</label>
+    <textarea id="signature"></textarea>
+</div>
+
+<div class="section">
+    <h2>4. 验证签名并登录</h2>
+    <button onclick="verifySignature()">提交 /auth/verify</button>
+
+    <label>Access Token</label>
+    <textarea id="accessToken"></textarea>
+</div>
+
+<div class="section">
+    <h2>请求结果</h2>
+    <pre id="output"></pre>
+</div>
+
+<script>
+    const API_BASE = "";
+
+    function log(data) {
+        document.getElementById("output").textContent =
+            typeof data === "string" ? data : JSON.stringify(data, null, 2);
+    }
+
+    async function connectWallet() {
+        if (!window.ethereum) {
+            alert("没有检测到 MetaMask，请先安装 MetaMask。");
+            return;
+        }
+
+        const accounts = await window.ethereum.request({
+            method: "eth_requestAccounts"
+        });
+
+        document.getElementById("address").value = accounts[0];
+
+        const chainIdHex = await window.ethereum.request({
+            method: "eth_chainId"
+        });
+
+        document.getElementById("chainId").value = parseInt(chainIdHex, 16);
+
+        log({
+            connected: true,
+            address: accounts[0],
+            chain_id: parseInt(chainIdHex, 16)
+        });
+    }
+
+    async function switchToAnvil() {
+        if (!window.ethereum) {
+            alert("没有检测到 MetaMask。");
+            return;
+        }
+
+        const anvilChainId = "0x7a69"; // 31337
+
+        try {
+            await window.ethereum.request({
+                method: "wallet_switchEthereumChain",
+                params: [{ chainId: anvilChainId }]
+            });
+        } catch (err) {
+            if (err.code === 4902) {
+                await window.ethereum.request({
+                    method: "wallet_addEthereumChain",
+                    params: [{
+                        chainId: anvilChainId,
+                        chainName: "Anvil Localhost 31337",
+                        nativeCurrency: {
+                            name: "ETH",
+                            symbol: "ETH",
+                            decimals: 18
+                        },
+                        rpcUrls: ["http://127.0.0.1:8545"],
+                        blockExplorerUrls: []
+                    }]
+                });
+            } else {
+                throw err;
+            }
+        }
+
+        await connectWallet();
+    }
+
+    async function createNonce() {
+        const address = document.getElementById("address").value.trim();
+        const chainId = Number(document.getElementById("chainId").value);
+
+        if (!address) {
+            alert("请先连接钱包。");
+            return;
+        }
+
+        const res = await fetch(`${API_BASE}/api/v1/auth/nonce`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                address,
+                chain_id: chainId
+            })
+        });
+
+        const json = await res.json();
+        log(json);
+
+        if (json.code !== 0) {
+            return;
+        }
+
+        document.getElementById("nonce").value = json.data.nonce;
+        document.getElementById("message").value = json.data.message;
+        document.getElementById("expiresAt").value = json.data.expires_at;
+    }
+
+    async function signMessage() {
+        if (!window.ethereum) {
+            alert("没有检测到 MetaMask。");
+            return;
+        }
+
+        const address = document.getElementById("address").value.trim();
+        const message = document.getElementById("message").value;
+
+        if (!address || !message) {
+            alert("请先连接钱包并获取 nonce message。");
+            return;
+        }
+
+        const signature = await window.ethereum.request({
+            method: "personal_sign",
+            params: [message, address]
+        });
+
+        document.getElementById("signature").value = signature;
+
+        log({
+            signed: true,
+            address,
+            signature
+        });
+    }
+
+    async function verifySignature() {
+        const address = document.getElementById("address").value.trim();
+        const chainId = Number(document.getElementById("chainId").value);
+        const message = document.getElementById("message").value;
+        const signature = document.getElementById("signature").value.trim();
+
+        const res = await fetch(`${API_BASE}/api/v1/auth/verify`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                address,
+                chain_id: chainId,
+                message,
+                signature
+            })
+        });
+
+        const json = await res.json();
+        log(json);
+
+        if (json.code === 0) {
+            document.getElementById("accessToken").value = json.data.access_token;
+        }
+    }
+</script>
+</body>
+</html>
