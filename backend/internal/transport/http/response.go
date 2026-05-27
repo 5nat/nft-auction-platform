@@ -30,11 +30,12 @@ import (
 */
 
 const (
-	CodeSuccess         = 0
-	CodeBadRequest      = 40001
-	CodeAuctionNotFound = 40401
-	CodeInternalError   = 50000
-	CodeDatabaseDown    = 50301
+	CodeSuccess              = 0
+	CodeBadRequest           = 40001
+	CodeAuctionNotFound      = 40401
+	CodeTxPreconditionFailed = 40901
+	CodeInternalError        = 50000
+	CodeDatabaseDown         = 50301
 )
 
 type Response struct {

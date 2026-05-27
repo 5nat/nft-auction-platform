@@ -56,6 +56,11 @@ func NewMySQL(ctx context.Context, dsn string) (*DB, error) {
 func autoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&model.AppMetadata{},
+
+		&model.User{},
+		&model.Wallet{},
+		&model.AuthNonce{},
+
 		&model.Auction{},
 		&model.Bid{},
 		&model.SyncCursor{},
@@ -63,6 +68,8 @@ func autoMigrate(db *gorm.DB) error {
 	); err != nil {
 		return err
 	}
+
+	fmt.Println("gorm auto migrate done")
 
 	meta := model.AppMetadata{
 		MetaKey: "schema_version",
